@@ -1,3 +1,4 @@
+# add to country dict so that
 countryDict = {
 	"AF": "Afghanistan",
 	"AL": "Albania",
@@ -54,7 +55,7 @@ countryDict = {
 	"FI": "Finland",
 	"FR": "France",
 	"GF": "French Guiana",
-	"TF": "French Southern Territories",
+	#"TF": "French Southern Territories",
 	"GA": "Gabon",
 	"GM": "Gambia",
 	"GE": "Georgia",
@@ -128,7 +129,7 @@ countryDict = {
 	"PT": "Portugal",
 	"PR": "Puerto Rico",
 	"QA": "Qatar",
-	"XK": "Kosovo",
+	#"XK": "Kosovo",
 	"RO": "Romania",
 	"RU": "Russia",
 	"RW": "Rwanda",
@@ -146,7 +147,7 @@ countryDict = {
 	"LK": "Sri Lanka",
 	"SD": "Sudan",
 	"SR": "Suriname",
-	"SJ": "Svalbard and Jan Mayen",
+	#"SJ": "Svalbard and Jan Mayen",
 	"SZ": "Swaziland",
 	"SE": "Sweden",
 	"CH": "Switzerland",

@@ -1,3 +1,5 @@
+from enum import Enum
+
 import Messaging
 import os
 from countriesWithCodes import countryDict
@@ -6,6 +8,8 @@ import requests
 import VirusTrackerAPIHandler
 import json
 from datetime import datetime, timedelta
+import time
+import countryPopulationScraper
 
 debugMode = False
 
@@ -38,52 +42,6 @@ notificationHeader = """
 """
 
 
-def getGlobalStats():
-    """
-    @return:    json object of relevant portion of global stats
-    :return:
-    """
-    URL = "https://thevirustracker.com/free-api?global=stats"
-    r = requests.get(url=URL)
-    data = r.json()
-    return data
-
-
-class Timeline:
-    def __init__(self):
-        self.fullTimeline = None
-
-    def fetchAndUpdateFullTimeline(self):
-        """
-        fetches the full timeline
-        """
-
-        self.updateFullTimeline(self.fetchFullTimeline())
-
-    def updateFullTimeline(self, timeline):
-        self.fullTimeline = timeline
-
-    def fetchFullTimeline(self):
-        """
-            @return:    data
-
-            :return:    data
-                            00
-                                date
-                                data
-                                    000
-                                        countrycode
-                                        countrylabel
-            """
-        URL = "https://thevirustracker.com/free-api?global=stats"
-        r = requests.get(url=URL)
-        data = r.json()
-        return data
-
-    def getCountryTimelineData(self, countryCode):
-        return self.fullTimeline["results"]['d']
-
-
 def getFullTimeline():
     pass
 
@@ -102,12 +60,28 @@ def attrToStr(attribute):
     # words[0] = words[0].capitalize()
     return " ".join(words)
 
+class APIStatus(Enum):
+    API_DOWN = 1
+    API_RUNNING = 2
 
 class CoronaTexts:
     def __init__(self):
         self.countries = []
         self.emailAddressesToReachOutTo = []
         self.Session = Messaging.Session()
+        self.apiStatus = APIStatus.API_DOWN
+
+    def isAPIDown(self):
+        if self.apiStatus == APIStatus.API_DOWN:
+            return True
+        else:
+            return False
+
+    def setAPIStatus(self, apiStatus):
+        self.apiStatus = apiStatus
+
+    def getAPIStatus(self):
+        return self.apiStatus
 
     def getAllCountryCodes(self):
         countryCode = ""
@@ -153,6 +127,8 @@ class CoronaTexts:
         # can handle the entire array
         self.Session.sendMessageToContacts(self.emailAddressesToReachOutTo, notification)
 
+    def refreshPopulations(self):
+        countryPopulationScraper.updatePops(self)
     """
     staleStat, newStat
     """
@@ -183,39 +159,45 @@ class CoronaTexts:
                 
         """
         notification = ""
-        for country in self.countries:
-            timeBeforeUpdate = datetime.now()
-            cPrint("Updating {} statistics . . . timestamp: {}".format(country.getCountryName(), str(timeBeforeUpdate)))
+        if not self.isAPIDown():
+            for country in self.countries:
+                timeBeforeUpdate = datetime.now()
+                cPrint("Updating {} statistics...".format(country.getCountryName()))
 
-            # grab its current/stale statistics
-            staleStatistics = country.getCurrentStatistics()
+                # grab its current/stale statistics
+                staleStatistics = country.getCurrentStatistics()
 
-            # update its statistics
-            country.updateCountry()
+                # update its statistics
+                country.updateCountry()
 
-            notification += self.performAnalysisOnAllCountries()
+                notification += self.performAnalysisOnAllCountries()
 
 
 
-            timeAfterUpdate = datetime.now()
-            elapsedUpdateTime = timeAfterUpdate - timeBeforeUpdate
-            cPrint("*** {}'s statistics updated. Elapsed time: {}".format(country.getCountryName(), elapsedUpdateTime))
+                timeAfterUpdate = datetime.now()
+                elapsedUpdateTime = timeAfterUpdate - timeBeforeUpdate
+                cPrint(">>> {}'s statistics updated. Elapsed time: {}".format(country.getCountryName(), elapsedUpdateTime))
 
-        # we have all the data for the day. now send it to everyone
-        notificationWasSent = False
-        if notification is not "":
-            notificationWasSent = True
-            notification = "".join(notificationHeader, notification, notificationEnd)
-            self.sendNotification(notification)
+            # we have all the data for the day. now send it to everyone
+            notificationWasSent = False
+            if notification is not "":
+                notificationWasSent = True
+                notification = "".join([notificationHeader, notification, notificationEnd])
+                self.sendNotification(notification)
+                cPrint(">>> Just sent a notification to {} recipients."
+                       .format(str(len(self.emailAddressesToReachOutTo))))
+            else:
+                cPrint(">>> No notification was sent. It's eerily quiet...")
+                time.sleep(5)
 
-        timeAfterCompleteUpdate = datetime.now()
-        elapsedCompleteUpdateTime = timeAfterCompleteUpdate - timeBeforeCompleteUpdate
-        cPrint("**********************************")
-        cPrint("All countries updated!")
-        cPrint("Elapsed time:\t{}".format(elapsedCompleteUpdateTime))
-        if notificationWasSent:
-            cPrint("NOTE: a notification was just sent!")
-        cPrint("**********************************")
+            timeAfterCompleteUpdate = datetime.now()
+            elapsedCompleteUpdateTime = timeAfterCompleteUpdate - timeBeforeCompleteUpdate
+            cPrint("**********************************")
+            cPrint("All countries updated!")
+            cPrint("Elapsed time:\t{}".format(elapsedCompleteUpdateTime))
+            if notificationWasSent:
+                cPrint("NOTE: a notification was just sent!")
+            cPrint("**********************************")
 
     def performAnalysisOnAllCountries(self):
         """
@@ -233,7 +215,7 @@ def cPrint(outStr):
     if outStr == "":
         print("")
     else:
-        print(" ".join(["<corona>", str(outStr)]))
+        print(" ".join(["<corona>", str(datetime.now()), str(outStr)]))
 
 
 availableStats = ["total_cases",
@@ -348,7 +330,8 @@ class CountryStatistic:
             return 37
 
     def alarminglyBigChange(self):
-        return self.currOverPrev(self.getCurrentChange(), self.getPreviousChange()) > 2
+        return False
+        #return self.currOverPrev(self.getCurrentChange(), self.getPreviousChange()) > 2
 
     def percentageOfPopulation(self):
         """
@@ -465,13 +448,21 @@ class StatisticGroup:
             .setStatisticValue(value)  # set the statistic's value
 
 
-class Country:
+class Country(CoronaTexts):
     def __init__(self, countryName, countryCode):
+        super().__init__()
         self.country_name = countryName
         self.country_code = countryCode
         self.country_stats = StatisticGroup()
-
+        self.population = 0 # keep population member separate since separate refresh API
         self.timeStamp = datetime.now()
+
+    def setPopulation(self, population):
+        self.population = population
+
+    def getPopulation(self):
+        return self.population
+
 
     def getCurrentStatistics(self):
         return self.country_stats
@@ -480,10 +471,17 @@ class Country:
         """
         a.  make a call to virusTrackerAPIHandler with country's code
         b.  parse the response
+        :return:    false if the API is down
+                    true if the stats are all updated
         """
+        if self.isAPIDown():
+            return False
         # see what fetchCountryStats returns
         newStats = VirusTrackerAPIHandler.fetchCountryStats(self.getCountryCode())
-        self.updateStats(newStats)
+        if newStats.text.strip() == "back soon fixing":
+            cPrint("The API is down. Cannot update country statistics at this time.")
+        else:
+            self.updateStats(newStats)
 
     def updateStats(self, newStats):
         """
@@ -681,6 +679,10 @@ def main():
         try:
             if hasTimeElapsed(updateTimer):
                 # refresh all
+                countryPopulationScraper.updatePops(coronaTexts)
+                print("\t{}\t|\t{}\t".format("Name", "Population"))
+                for country in coronaTexts.countries:
+                    print("\t{}\t|\t{}\t".format(country.getCountryName(), int(country.getPopulation())))
                 coronaTexts.updateAllCountries()
         except KeyboardInterrupt:
             printMenu()
